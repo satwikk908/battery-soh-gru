@@ -3,4 +3,3 @@ pandas
 numpy
 matplotlib
 scikit-learn
-tensorflow-cpu==2.16.1
