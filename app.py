@@ -5,7 +5,7 @@ import plotly.express as px
 
 st.set_page_config(page_title="Battery SOH Analysis", layout="wide")
 
-st.title("🔋 Battery State of Health (SOH) Dashboard")
+st.title(" Battery State of Health (SOH) Dashboard")
 st.markdown("### GRU-Based Sequential Degradation Monitoring")
 
 uploaded_files = st.file_uploader(
@@ -37,22 +37,29 @@ if uploaded_files:
             df = discharge_df
 
     # ---------------- SOH ----------------
-    cycle_capacity = (
-        df.groupby("Cycle")["Capacity"]
-        .max()
-        .reset_index()
-        .sort_values("Cycle")
-    )
+    # Group per cycle using absolute max capacity
+cycle_capacity = (
+    df.groupby("Cycle")["Capacity"]
+    .max()
+    .reset_index()
+    .sort_values("Cycle")
+)
 
-    if cycle_capacity.empty:
-        st.error("No valid cycling discharge data found in uploaded files.")
-        st.stop()
+# Remove very small capacity cycles (diagnostic/pulse cycles)
+nominal_capacity = cycle_capacity["Capacity"].max()
 
-    initial_capacity = cycle_capacity["Capacity"].max()
+cycle_capacity = cycle_capacity[
+    cycle_capacity["Capacity"] > 0.5 * nominal_capacity
+]
 
-    cycle_capacity["SOH"] = (
-        cycle_capacity["Capacity"] / initial_capacity
-    ) * 100
+if cycle_capacity.empty:
+    st.error("No valid full discharge cycles found.")
+    st.stop()
+
+# Calculate SOH
+cycle_capacity["SOH"] = (
+    cycle_capacity["Capacity"] / nominal_capacity
+) * 100
 
     # ---------------- METRICS ----------------
     first_soh = cycle_capacity["SOH"].iloc[0]
@@ -121,4 +128,5 @@ if uploaded_files:
         st.warning("⚠ Battery approaching End-of-Life threshold.")
 
     st.caption("Prediction generated using GRU sequence model trained offline.")
+
 
