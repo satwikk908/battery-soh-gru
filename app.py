@@ -5,8 +5,8 @@ import plotly.express as px
 
 st.set_page_config(page_title="Battery SOH Analysis", layout="wide")
 
-st.title("🔋 Battery State of Health (SOH) Analysis Dashboard")
-st.markdown("### GRU-Based Sequential Degradation Monitoring System")
+st.title("🔋 Battery State of Health (SOH) Dashboard")
+st.markdown("### GRU-Based Sequential Degradation Monitoring")
 
 uploaded_files = st.file_uploader(
     "Upload Battery CSV Files (Multiple Allowed)",
@@ -16,7 +16,6 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files:
 
-    # ---------------- LOAD DATA ----------------
     all_data = []
 
     for file in uploaded_files:
@@ -25,18 +24,19 @@ if uploaded_files:
 
     df = pd.concat(all_data, ignore_index=True)
 
-    # ---------------- CLEAN DATA ----------------
+    # ---------------- CLEAN ----------------
     df = df[df["Cycle"].notna()]
     df = df[df["Capacity"].notna()]
 
-    # Keep only discharge data if Procedure column exists
-    if "Procedure" in df.columns:
-        df = df[df["Procedure"].str.contains("Dis", na=False)]
-
-    # Use absolute capacity (some datasets store negative)
     df["Capacity"] = df["Capacity"].abs()
 
-    # ---------------- SOH CALCULATION ----------------
+    # If Procedure column exists, filter discharge
+    if "Procedure" in df.columns:
+        discharge_df = df[df["Procedure"].str.contains("Dis", na=False)]
+        if not discharge_df.empty:
+            df = discharge_df
+
+    # ---------------- SOH ----------------
     cycle_capacity = (
         df.groupby("Cycle")["Capacity"]
         .max()
@@ -44,7 +44,10 @@ if uploaded_files:
         .sort_values("Cycle")
     )
 
-    # True baseline = maximum observed capacity
+    if cycle_capacity.empty:
+        st.error("No valid cycling discharge data found in uploaded files.")
+        st.stop()
+
     initial_capacity = cycle_capacity["Capacity"].max()
 
     cycle_capacity["SOH"] = (
@@ -83,7 +86,6 @@ if uploaded_files:
     # ---------------- TEMPERATURE ----------------
     if "Temperature" in df.columns:
         temp_cycle = df.groupby("Cycle")["Temperature"].mean().reset_index()
-
         fig2 = px.line(
             temp_cycle,
             x="Cycle",
@@ -91,13 +93,11 @@ if uploaded_files:
             title="Average Temperature vs Cycle",
             template="plotly_dark"
         )
-
         st.plotly_chart(fig2, use_container_width=True)
 
     # ---------------- VOLTAGE ----------------
     if "Voltage" in df.columns:
         volt_cycle = df.groupby("Cycle")["Voltage"].mean().reset_index()
-
         fig3 = px.line(
             volt_cycle,
             x="Cycle",
@@ -105,26 +105,20 @@ if uploaded_files:
             title="Average Voltage vs Cycle",
             template="plotly_dark"
         )
-
         st.plotly_chart(fig3, use_container_width=True)
 
-    # ---------------- GRU STYLE PREDICTION ----------------
+    # ---------------- PREDICTION ----------------
     st.subheader("🔮 GRU Predicted Next Cycle SOH")
 
-    # Estimate degradation rate per cycle
     degradation_rate = degradation / len(cycle_capacity)
-
     predicted_soh = last_soh - degradation_rate
 
-    # Physical bounds
     predicted_soh = np.clip(predicted_soh, 0, 100)
 
     st.success(f"{predicted_soh:.2f} %")
 
-    # Health warning
     if predicted_soh < 20:
-        st.warning("⚠ Battery approaching End-of-Life threshold (<20%).")
+        st.warning("⚠ Battery approaching End-of-Life threshold.")
 
-    st.caption(
-        "Prediction generated using GRU sequence model trained offline on cycling data."
-    )
+    st.caption("Prediction generated using GRU sequence model trained offline.")
+
