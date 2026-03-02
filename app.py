@@ -5,7 +5,7 @@ import plotly.express as px
 
 st.set_page_config(page_title="Battery SOH Analysis", layout="wide")
 
-st.title(" Battery State of Health (SOH) Dashboard")
+st.title("🔋 Battery State of Health (SOH) Dashboard")
 st.markdown("### GRU-Based Sequential Degradation Monitoring")
 
 uploaded_files = st.file_uploader(
@@ -24,44 +24,46 @@ if uploaded_files:
 
     df = pd.concat(all_data, ignore_index=True)
 
-    # ---------------- CLEAN ----------------
+    # Clean basic columns
     df = df[df["Cycle"].notna()]
     df = df[df["Capacity"].notna()]
-
     df["Capacity"] = df["Capacity"].abs()
 
-    # If Procedure column exists, filter discharge
+    # Filter discharge only if Procedure exists
     if "Procedure" in df.columns:
         discharge_df = df[df["Procedure"].str.contains("Dis", na=False)]
         if not discharge_df.empty:
             df = discharge_df
 
-    # ---------------- SOH ----------------
-    # Group per cycle using absolute max capacity
-cycle_capacity = (
-    df.groupby("Cycle")["Capacity"]
-    .max()
-    .reset_index()
-    .sort_values("Cycle")
-)
+    # Group per cycle
+    cycle_capacity = (
+        df.groupby("Cycle")["Capacity"]
+        .max()
+        .reset_index()
+        .sort_values("Cycle")
+    )
 
-# Remove very small capacity cycles (diagnostic/pulse cycles)
-nominal_capacity = cycle_capacity["Capacity"].max()
+    if cycle_capacity.empty:
+        st.error("No valid cycle data found.")
+        st.stop()
 
-cycle_capacity = cycle_capacity[
-    cycle_capacity["Capacity"] > 0.5 * nominal_capacity
-]
+    # Remove very small capacity cycles (pulse/diagnostic)
+    nominal_capacity = cycle_capacity["Capacity"].max()
 
-if cycle_capacity.empty:
-    st.error("No valid full discharge cycles found.")
-    st.stop()
+    cycle_capacity = cycle_capacity[
+        cycle_capacity["Capacity"] > 0.5 * nominal_capacity
+    ]
 
-# Calculate SOH
-cycle_capacity["SOH"] = (
-    cycle_capacity["Capacity"] / nominal_capacity
-) * 100
+    if cycle_capacity.empty:
+        st.error("No valid full discharge cycles found.")
+        st.stop()
 
-    # ---------------- METRICS ----------------
+    # SOH calculation
+    cycle_capacity["SOH"] = (
+        cycle_capacity["Capacity"] / nominal_capacity
+    ) * 100
+
+    # Metrics
     first_soh = cycle_capacity["SOH"].iloc[0]
     last_soh = cycle_capacity["SOH"].iloc[-1]
     degradation = first_soh - last_soh
@@ -74,7 +76,7 @@ cycle_capacity["SOH"] = (
 
     st.divider()
 
-    # ---------------- SOH GRAPH ----------------
+    # SOH graph
     fig1 = px.line(
         cycle_capacity,
         x="Cycle",
@@ -83,43 +85,13 @@ cycle_capacity["SOH"] = (
         template="plotly_dark"
     )
 
-    fig1.update_layout(
-        xaxis_title="Cycle Number",
-        yaxis_title="State of Health (%)"
-    )
-
     st.plotly_chart(fig1, use_container_width=True)
 
-    # ---------------- TEMPERATURE ----------------
-    if "Temperature" in df.columns:
-        temp_cycle = df.groupby("Cycle")["Temperature"].mean().reset_index()
-        fig2 = px.line(
-            temp_cycle,
-            x="Cycle",
-            y="Temperature",
-            title="Average Temperature vs Cycle",
-            template="plotly_dark"
-        )
-        st.plotly_chart(fig2, use_container_width=True)
-
-    # ---------------- VOLTAGE ----------------
-    if "Voltage" in df.columns:
-        volt_cycle = df.groupby("Cycle")["Voltage"].mean().reset_index()
-        fig3 = px.line(
-            volt_cycle,
-            x="Cycle",
-            y="Voltage",
-            title="Average Voltage vs Cycle",
-            template="plotly_dark"
-        )
-        st.plotly_chart(fig3, use_container_width=True)
-
-    # ---------------- PREDICTION ----------------
+    # Prediction
     st.subheader("🔮 GRU Predicted Next Cycle SOH")
 
     degradation_rate = degradation / len(cycle_capacity)
     predicted_soh = last_soh - degradation_rate
-
     predicted_soh = np.clip(predicted_soh, 0, 100)
 
     st.success(f"{predicted_soh:.2f} %")
@@ -128,5 +100,3 @@ cycle_capacity["SOH"] = (
         st.warning("⚠ Battery approaching End-of-Life threshold.")
 
     st.caption("Prediction generated using GRU sequence model trained offline.")
-
-
